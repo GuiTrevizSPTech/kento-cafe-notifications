@@ -126,12 +126,14 @@ flowchart TD
     C -->|Concluído em < 5 min| D([Fim: Pedido Entregue])
     
     C -->|Permanece Pendente| E[Mensagem expira após 5min via TTL/DLX]
-    E --> F[Fila de Atrasos: orders.delayed]
+    E --> F[Fila de Atrasos: pedidos.atrasados]
     
     F --> G[Microsserviço de Notificação]
-    G --> H[Valida Regras de Domínio]
-    H --> I[Cria Payload de Popup]
-    I --> J[Publica na Fila de Notificações]
+    G --> H{Valida: isAtrasado?}
     
-    J --> K([Fim: Sistema exibe Popup])
+    H -->|Não| L([Fim: Falso Positivo / Já Finalizado])
+    H -->|Sim| I[Cria Payload de Popup / Notificação]
+    
+    I --> J[Publica na Fila de Notificações]
+    J --> K([Fim: Sistema exibe Popup na Cozinha/Caixa])
 ```
