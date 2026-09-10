@@ -79,6 +79,7 @@ classDiagram
     NotificarPedidoAtrasadoService ..> Notificacao : Cria
     Pedido ..> DomainException : Lança (via Builder)
     Notificacao ..> DomainException : Lança (via Builder)
+    PedidoStatus ..> DomainException : Lança (via Builder)
 ```
 
 ## 2. Diagrama de Sequência (Fluxo de Execução)
