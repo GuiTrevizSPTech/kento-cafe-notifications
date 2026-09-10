@@ -86,30 +86,34 @@ classDiagram
 
 ```mermaid
 sequenceDiagram
-    participant RMQ_In as RabbitMQ (orders.delayed.queue)
-    participant Listener as OrderDelayedListener (Infra)
-    participant UseCase as NotifyDelayedOrderService (App)
-    participant Domain as Order (Domain)
-    participant RMQ_Out as RabbitMQNotificationAdapter (Infra)
-    participant Exchange as RabbitMQ (notifications.exchange)
+    participant RMQ_In as RabbitMQ (pedidos.atrasados.queue)
+    participant Listener as PedidoAtrasadoListener (Infra)
+    participant UseCase as NotificarPedidoAtrasadoService (App)
+    participant Domain as Pedido (Domain)
+    participant RMQ_Out as RabbitMQNotificacaoAdapter (Infra)
+    participant Exchange as RabbitMQ (notificacoes.exchange)
 
-    RMQ_In->>Listener: Consome Evento (order_id)
-    Listener->>UseCase: execute(order_id)
+    RMQ_In->>Listener: Consome Evento (pedido_id)
+    Listener->>UseCase: executar(pedido_id)
     
-    Note over UseCase,Domain: Regras de Negócio
-    UseCase->>Domain: order.isDelayed(5)
-    Domain-->>UseCase: true
+    Note over UseCase,Domain: Regras de Negócio e Validações
+    UseCase->>Domain: pedido.isAtrasado(5)
     
-    UseCase->>UseCase: Instancia Notification("Aviso de Preferência")
+    alt isAtrasado == true
+        Domain-->>UseCase: true
+        UseCase->>UseCase: Instancia Notificacao("Aviso de Preferência")
+        Note over UseCase,RMQ_Out: Saída de Dados (Port Adapter)
+        UseCase->>RMQ_Out: publicar(notificacao)
+        RMQ_Out->>Exchange: Publica Mensagem (routingKey: popup)
+        Exchange-->>RMQ_Out: Ack (Confirmação)
+        RMQ_Out-->>UseCase: Sucesso
+    else isAtrasado == false
+        Domain-->>UseCase: false
+        Note over UseCase: Processo encerrado silenciosamente
+    end
     
-    Note over UseCase,RMQ_Out: Saída de Dados (Port Adapter)
-    UseCase->>RMQ_Out: publish(notification)
-    RMQ_Out->>Exchange: Publica Mensagem (routingKey: popup)
-    
-    Exchange-->>RMQ_Out: Ack (Confirmação)
-    RMQ_Out-->>UseCase: Sucesso
-    UseCase-->>Listener: Sucesso
-    Listener-->>RMQ_In: Ack (Mensagem processada com sucesso)
+    UseCase-->>Listener: Retorno
+    Listener-->>RMQ_In: Ack (Mensagem processada)
 ```
 
 ## 3. Diagrama de Processo de Negócio (Fluxo Lógico)
