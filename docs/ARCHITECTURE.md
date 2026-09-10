@@ -6,94 +6,114 @@ Este documento detalha o design arquitetural, o fluxo de comunicação e as regr
 
 ```mermaid
 classDiagram
+    %% Camada de Domínio (Core - Independente)
     namespace Domain {
-        class Order {
-            +UUID orderId
-            +LocalDateTime createdAt
-            +OrderStatus status
-            +isDelayed(int thresholdMinutes) boolean
+        class Pedido {
+            -Long id
+            -LocalDateTime dtHrPedido
+            -LocalDateTime dtHrPronto
+            -PedidoStatus status
+            +isAtrasado(int limiteMinutos, LocalDateTime horaAtual) boolean
         }
-        class Notification {
-            +UUID notificationId
-            +String message
-            +String targetRole
+        class PedidoStatus {
+            -Long id
+            -String nome
+        }
+        class Notificacao {
+            -UUID id
+            -String mensagem
+            -LocalDateTime geradaEm
+        }
+        class DomainException {
+            <<RuntimeException>>
+            +DomainException(String mensagem)
         }
     }
 
+    %% Camada de Aplicação (Casos de Uso e Portas)
     namespace Application {
-        class NotifyDelayedOrderUseCase {
+        class NotificarPedidoAtrasadoUseCase {
             <<interface>>
-            +execute(UUID orderId)
+            +executar(Long pedidoId)
         }
-        class NotifyDelayedOrderService {
-            -NotificationPublisherPort publisher
-            -OrderRepositoryPort orderRepository
-            +execute(UUID orderId)
+        class NotificarPedidoAtrasadoService {
+            -NotificacaoPublisherPort publisher
+            -PedidoRepositoryPort pedidoRepository
+            +executar(Long pedidoId)
         }
-        class NotificationPublisherPort {
+        class NotificacaoPublisherPort {
             <<interface>>
-            +publish(Notification notification)
+            +publicar(Notificacao notificacao)
         }
-        class OrderRepositoryPort {
+        class PedidoRepositoryPort {
             <<interface>>
-            +findById(UUID orderId) Order
+            +buscarPorId(Long pedidoId) Pedido
         }
     }
 
+    %% Camada de Infraestrutura
     namespace Infrastructure {
-        class RabbitMQNotificationAdapter {
+        class RabbitMQNotificacaoAdapter {
             -RabbitTemplate rabbitTemplate
-            +publish(Notification notification)
+            +publicar(Notificacao notificacao)
         }
-        class DatabaseOrderAdapter {
-            +findById(UUID orderId) Order
+        class DatabasePedidoAdapter {
+            +buscarPorId(Long pedidoId) Pedido
         }
-        class OrderDelayedListener {
-            -NotifyDelayedOrderUseCase useCase
-            +onOrderDelayedEvent(Message message)
+        class PedidoAtrasadoListener {
+            -NotificarPedidoAtrasadoUseCase useCase
+            +aoReceberEventoAtraso(Message mensagem)
         }
     }
 
-    NotifyDelayedOrderUseCase <|.. NotifyDelayedOrderService : Implements
-    NotificationPublisherPort <|.. RabbitMQNotificationAdapter : Implements
-    OrderRepositoryPort <|.. DatabaseOrderAdapter : Implements
+    %% Relacionamentos
+    NotificarPedidoAtrasadoUseCase <|.. NotificarPedidoAtrasadoService : Implementa
+    NotificacaoPublisherPort <|.. RabbitMQNotificacaoAdapter : Implementa
+    PedidoRepositoryPort <|.. DatabasePedidoAdapter : Implementa
     
-    NotifyDelayedOrderService --> NotificationPublisherPort : Uses
-    NotifyDelayedOrderService --> OrderRepositoryPort : Uses
-    OrderDelayedListener --> NotifyDelayedOrderUseCase : Injects
+    NotificarPedidoAtrasadoService --> NotificacaoPublisherPort : Usa
+    NotificarPedidoAtrasadoService --> PedidoRepositoryPort : Usa
+    PedidoAtrasadoListener --> NotificarPedidoAtrasadoUseCase : Injeta
     
-    NotifyDelayedOrderService ..> Order : Uses
-    NotifyDelayedOrderService ..> Notification : Creates
+    NotificarPedidoAtrasadoService ..> Pedido : Usa
+    NotificarPedidoAtrasadoService ..> Notificacao : Cria
+    Pedido ..> DomainException : Lança (via Builder)
+    Notificacao ..> DomainException : Lança (via Builder)
+    PedidoStatus ..> DomainException : Lança (via Builder)
 ```
 
 ## 2. Diagrama de Sequência (Fluxo de Execução)
 
 ```mermaid
 sequenceDiagram
-    participant RMQ_In as RabbitMQ (orders.delayed.queue)
-    participant Listener as OrderDelayedListener (Infra)
-    participant UseCase as NotifyDelayedOrderService (App)
-    participant Domain as Order (Domain)
-    participant RMQ_Out as RabbitMQNotificationAdapter (Infra)
-    participant Exchange as RabbitMQ (notifications.exchange)
+    participant RMQ_In as RabbitMQ (pedidos.atrasados.queue)
+    participant Listener as PedidoAtrasadoListener (Infra)
+    participant UseCase as NotificarPedidoAtrasadoService (App)
+    participant Domain as Pedido (Domain)
+    participant RMQ_Out as RabbitMQNotificacaoAdapter (Infra)
+    participant Exchange as RabbitMQ (notificacoes.exchange)
 
-    RMQ_In->>Listener: Consome Evento (order_id)
-    Listener->>UseCase: execute(order_id)
+    RMQ_In->>Listener: Consome Evento (pedido_id)
+    Listener->>UseCase: executar(pedido_id)
     
-    Note over UseCase,Domain: Regras de Negócio
-    UseCase->>Domain: order.isDelayed(5)
-    Domain-->>UseCase: true
+    Note over UseCase,Domain: Regras de Negócio e Validações
+    UseCase->>Domain: pedido.isAtrasado(5)
     
-    UseCase->>UseCase: Instancia Notification("Aviso de Preferência")
+    alt isAtrasado == true
+        Domain-->>UseCase: true
+        UseCase->>UseCase: Instancia Notificacao("Aviso de Preferência")
+        Note over UseCase,RMQ_Out: Saída de Dados (Port Adapter)
+        UseCase->>RMQ_Out: publicar(notificacao)
+        RMQ_Out->>Exchange: Publica Mensagem (routingKey: popup)
+        Exchange-->>RMQ_Out: Ack (Confirmação)
+        RMQ_Out-->>UseCase: Sucesso
+    else isAtrasado == false
+        Domain-->>UseCase: false
+        Note over UseCase: Processo encerrado silenciosamente
+    end
     
-    Note over UseCase,RMQ_Out: Saída de Dados (Port Adapter)
-    UseCase->>RMQ_Out: publish(notification)
-    RMQ_Out->>Exchange: Publica Mensagem (routingKey: popup)
-    
-    Exchange-->>RMQ_Out: Ack (Confirmação)
-    RMQ_Out-->>UseCase: Sucesso
-    UseCase-->>Listener: Sucesso
-    Listener-->>RMQ_In: Ack (Mensagem processada com sucesso)
+    UseCase-->>Listener: Retorno
+    Listener-->>RMQ_In: Ack (Mensagem processada)
 ```
 
 ## 3. Diagrama de Processo de Negócio (Fluxo Lógico)
@@ -106,12 +126,14 @@ flowchart TD
     C -->|Concluído em < 5 min| D([Fim: Pedido Entregue])
     
     C -->|Permanece Pendente| E[Mensagem expira após 5min via TTL/DLX]
-    E --> F[Fila de Atrasos: orders.delayed]
+    E --> F[Fila de Atrasos: pedidos.atrasados]
     
     F --> G[Microsserviço de Notificação]
-    G --> H[Valida Regras de Domínio]
-    H --> I[Cria Payload de Popup]
-    I --> J[Publica na Fila de Notificações]
+    G --> H{Valida: isAtrasado?}
     
-    J --> K([Fim: Sistema exibe Popup])
+    H -->|Não| L([Fim: Falso Positivo / Já Finalizado])
+    H -->|Sim| I[Cria Payload de Popup / Notificação]
+    
+    I --> J[Publica na Fila de Notificações]
+    J --> K([Fim: Sistema exibe Popup na Cozinha/Caixa])
 ```
