@@ -6,64 +6,79 @@ Este documento detalha o design arquitetural, o fluxo de comunicação e as regr
 
 ```mermaid
 classDiagram
+    %% Camada de Domínio (Core - Independente)
     namespace Domain {
-        class Order {
-            +UUID orderId
-            +LocalDateTime createdAt
-            +OrderStatus status
-            +isDelayed(int thresholdMinutes) boolean
+        class Pedido {
+            -Long id
+            -LocalDateTime dtHrPedido
+            -LocalDateTime dtHrPronto
+            -PedidoStatus status
+            +isAtrasado(int limiteMinutos, LocalDateTime horaAtual) boolean
         }
-        class Notification {
-            +UUID notificationId
-            +String message
-            +String targetRole
+        class PedidoStatus {
+            -Long id
+            -String nome
+        }
+        class Notificacao {
+            -UUID id
+            -String mensagem
+            -LocalDateTime geradaEm
+        }
+        class DomainException {
+            <<RuntimeException>>
+            +DomainException(String mensagem)
         }
     }
 
+    %% Camada de Aplicação (Casos de Uso e Portas)
     namespace Application {
-        class NotifyDelayedOrderUseCase {
+        class NotificarPedidoAtrasadoUseCase {
             <<interface>>
-            +execute(UUID orderId)
+            +executar(Long pedidoId)
         }
-        class NotifyDelayedOrderService {
-            -NotificationPublisherPort publisher
-            -OrderRepositoryPort orderRepository
-            +execute(UUID orderId)
+        class NotificarPedidoAtrasadoService {
+            -NotificacaoPublisherPort publisher
+            -PedidoRepositoryPort pedidoRepository
+            +executar(Long pedidoId)
         }
-        class NotificationPublisherPort {
+        class NotificacaoPublisherPort {
             <<interface>>
-            +publish(Notification notification)
+            +publicar(Notificacao notificacao)
         }
-        class OrderRepositoryPort {
+        class PedidoRepositoryPort {
             <<interface>>
-            +findById(UUID orderId) Order
+            +buscarPorId(Long pedidoId) Pedido
         }
     }
 
+    %% Camada de Infraestrutura
     namespace Infrastructure {
-        class RabbitMQNotificationAdapter {
+        class RabbitMQNotificacaoAdapter {
             -RabbitTemplate rabbitTemplate
-            +publish(Notification notification)
+            +publicar(Notificacao notificacao)
         }
-        class DatabaseOrderAdapter {
-            +findById(UUID orderId) Order
+        class DatabasePedidoAdapter {
+            +buscarPorId(Long pedidoId) Pedido
         }
-        class OrderDelayedListener {
-            -NotifyDelayedOrderUseCase useCase
-            +onOrderDelayedEvent(Message message)
+        class PedidoAtrasadoListener {
+            -NotificarPedidoAtrasadoUseCase useCase
+            +aoReceberEventoAtraso(Message mensagem)
         }
     }
 
-    NotifyDelayedOrderUseCase <|.. NotifyDelayedOrderService : Implements
-    NotificationPublisherPort <|.. RabbitMQNotificationAdapter : Implements
-    OrderRepositoryPort <|.. DatabaseOrderAdapter : Implements
+    %% Relacionamentos
+    NotificarPedidoAtrasadoUseCase <|.. NotificarPedidoAtrasadoService : Implementa
+    NotificacaoPublisherPort <|.. RabbitMQNotificacaoAdapter : Implementa
+    PedidoRepositoryPort <|.. DatabasePedidoAdapter : Implementa
     
-    NotifyDelayedOrderService --> NotificationPublisherPort : Uses
-    NotifyDelayedOrderService --> OrderRepositoryPort : Uses
-    OrderDelayedListener --> NotifyDelayedOrderUseCase : Injects
+    NotificarPedidoAtrasadoService --> NotificacaoPublisherPort : Usa
+    NotificarPedidoAtrasadoService --> PedidoRepositoryPort : Usa
+    PedidoAtrasadoListener --> NotificarPedidoAtrasadoUseCase : Injeta
     
-    NotifyDelayedOrderService ..> Order : Uses
-    NotifyDelayedOrderService ..> Notification : Creates
+    NotificarPedidoAtrasadoService ..> Pedido : Usa
+    NotificarPedidoAtrasadoService ..> Notificacao : Cria
+    Pedido ..> DomainException : Lança (via Builder)
+    Notificacao ..> DomainException : Lança (via Builder)
 ```
 
 ## 2. Diagrama de Sequência (Fluxo de Execução)
