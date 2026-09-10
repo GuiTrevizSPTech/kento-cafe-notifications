@@ -1,0 +1,16 @@
+# Compilados do Maven
+target/
+*.jar
+*.war
+*.ear
+
+# Configurações do IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Logs e arquivos temporários
+*.log
+.crash/
