@@ -53,4 +53,4 @@ jobs:
         context: .
         file: Dockerfile
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/gabicunha7/mensageria-kento-cafe:latest
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/mensageria-kento-cafe:latest
