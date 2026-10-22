@@ -1,0 +1,58 @@
+services:
+  rabbitmq:
+    build: ./rabbitmq
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: monitoramento-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
+      MYSQL_DATABASE: monitoramento_pedidos
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASS}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  monitoramento:
+    build: .
+    container_name: monitoramento
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      DB_URL: jdbc:mysql://mysql:3306/monitoramento_pedidos
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      PRAZO_BASE: ${PRAZO_BASE:-PT5M}
+      PRAZO_POR_ITEM: ${PRAZO_POR_ITEM:-PT2M}
+
+volumes:
+  rabbitmq_data:
+  mysql_data:
